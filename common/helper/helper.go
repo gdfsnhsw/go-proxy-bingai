@@ -19,6 +19,7 @@ func CommonResult(w http.ResponseWriter, code int, msg string, data interface{})
 		Data:    data,
 	}
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
 	err := json.NewEncoder(w).Encode(res)
 	if err != nil {
 		return err
@@ -40,9 +41,11 @@ func UnauthorizedResult(w http.ResponseWriter) error {
 
 func CheckAuth(r *http.Request) bool {
 	isAuth := true
-	if len(common.AUTH_KEY) > 0 {
-		ckAuthKey, _ := r.Cookie(common.AUTH_KEY_COOKIE_NAME)
-		isAuth = ckAuthKey != nil && len(ckAuthKey.Value) > 0 && common.AUTH_KEY == ckAuthKey.Value
+	if len(common.AUTH_KEYS) > 0 {
+		if common.AUTH_KEYS[0] != "" {
+			ckAuthKey, _ := r.Cookie(common.AUTH_KEY_COOKIE_NAME)
+			isAuth = ckAuthKey != nil && len(ckAuthKey.Value) > 0 && common.IsInArray(common.AUTH_KEYS, ckAuthKey.Value)
+		}
 	}
 	return isAuth
 }

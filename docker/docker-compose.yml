@@ -2,20 +2,20 @@ version: '3'
 
 services:
   go-proxy-bingai:
-    # 镜像名称
-    image: adams549659584/go-proxy-bingai
-    # 容器名称
-    container_name: go-proxy-bingai  
-    # 自启动
+    image: zklcdc/go-proxy-bingai
+    container_name: go-proxy-bingai
     restart: always
-    volumes:
-      # 将编译好的二进制文件 (linux-amd64) 放到和 docker-compose.yml 同个文件夹, 并赋予可执行权限 (`chmod +x go-proxy-bingai`)
-      - $PWD/go-proxy-bingai:/app/go-proxy-bingai
     ports:
       - 8080:8080
-    # environment:
-    #   - Go_Proxy_BingAI_SOCKS_URL=192.168.0.88:1070
-    #   - Go_Proxy_BingAI_SOCKS_USER=xxx
-    #   - Go_Proxy_BingAI_SOCKS_PWD=xxx
-    #   - Go_Proxy_BingAI_USER_TOKEN_1=xxx
-    #   - Go_Proxy_BingAI_USER_TOKEN_2=xxx
+    environment:
+      - BYPASS_SERVER=https://bypass.zklcdc.xyz
+      # - BING_BASE_URL=https://www.bing.com
+      # - SYDNEY_BASE_URL=https://sydney.bing.com
+      # - HTTP_PROXY=http://172.17.0.1:18080
+      # - HTTPS_PROXY=http://172.17.0.1:18080
+      # - Go_Proxy_BingAI_USER_TOKEN_1=xxx
+      # - Go_Proxy_BingAI_USER_TOKEN_2=xxx
+      # - USER_KievRPSSecAuth=xxx
+      # - USER_RwBf=xxx
+      # - USER_MUID=xxx
+      # - APIKEY=sk-xxx

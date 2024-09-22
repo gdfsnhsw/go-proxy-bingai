@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue';
-import { NEmpty, NButton, useMessage, NResult, NInput } from 'naive-ui';
+import { onMounted, ref, computed, h } from 'vue';
+import { NEmpty, NButton, useDialog, useMessage, NResult, NInput, NAlert, NModal, NPopover, NVirtualList} from 'naive-ui';
 import conversationCssText from '@/assets/css/conversation.css?raw';
 import { usePromptStore, type IPrompt } from '@/stores/modules/prompt';
 import { storeToRefs } from 'pinia';
-import VirtualList from 'vue3-virtual-scroll-list';
 import ChatPromptItem from './ChatPromptItem.vue';
 import { isMobile } from '@/utils/utils';
+import cookies from '@/utils/cookies';
 import LoadingSpinner from '@/components/LoadingSpinner/LoadingSpinner.vue';
 import { ApiResultCode } from '@/api/model/ApiResult';
 import type { SysConfig } from '@/api/model/sysconf/SysConfig';
@@ -15,6 +15,9 @@ import ChatServiceSelect from '@/components/ChatServiceSelect/ChatServiceSelect.
 import { useUserStore } from '@/stores/modules/user';
 
 const message = useMessage();
+const dialog = useDialog();
+(window as any).$dialog = dialog;
+
 const isShowLoading = ref(true);
 
 const promptStore = usePromptStore();
@@ -43,18 +46,48 @@ const isShowHistory = computed(() => {
   return (CIB.vm.isMobile && CIB.vm.sidePanel.isVisibleMobile) || (!CIB.vm.isMobile && CIB.vm.sidePanel.isVisibleDesktop);
 });
 
+const { themeMode, uiVersion, gpt4tEnable, sydneyEnable, sydneyPrompt, enterpriseEnable, copilotProEnable } = storeToRefs(userStore);
+
 onMounted(async () => {
   await initChat();
   hackDevMode();
   // CIB.vm.isMobile = isMobile();
   // show conversion
-  SydneyFullScreenConv.initWithWaitlistUpdate({ cookLoc: {} }, 10);
+  await SydneyFullScreenConv.initWithWaitlistUpdate({ cookLoc: {} }, 10);
+  if (isMobile()) {
+    const serpEle = document.querySelector('cib-serp');
+    serpEle?.setAttribute('mobile', '');
+  }
+  if (uiVersion.value === 'v3') {
+    await sj_evt.bind('chs_init', () => {
+      ChatHomeScreen.init('/turing/api/suggestions/v2/zeroinputstarter');
+    }, true);
+  }
   initSysConfig();
 
   isShowLoading.value = false;
   hackStyle();
+  hackEnterprise();
+  initSydney();
   initChatPrompt();
+
+  // set Theme
+  if (themeMode.value == 'light') {
+    CIB.changeColorScheme(0);
+  } else if (themeMode.value == 'dark') {
+    CIB.changeColorScheme(1);
+  } else if (themeMode.value == 'auto') {
+    if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      CIB.changeColorScheme(1);
+    } else {
+      CIB.changeColorScheme(0);
+    }
+  }
 });
+
+const sleep = async (ms: number) => {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 const hackDevMode = () => {
   if (import.meta.env.DEV) {
@@ -81,6 +114,21 @@ const initChatService = () => {
 };
 
 const initSysConfig = async () => {
+  const S = base58Decode(_G.S);
+  let tmpA = [];
+  for (let i = 0; i < _G.SP.length; i++) {
+    tmpA.push(S[_G.SP[i]]);
+  }
+  const token = base58Decode(tmpA.join(''));
+  if (token != _G.AT) {
+    dialog.warning({
+      title: decodeURI(base58Decode(_G.TIP)),
+      content: decodeURI(base58Decode(_G.TIPC)),
+      maskClosable: false,
+      closable: false,
+      closeOnEsc: false,
+    });
+  }
   const res = await userStore.getSysConfig();
   switch (res.code) {
     case ApiResultCode.OK:
@@ -89,7 +137,64 @@ const initSysConfig = async () => {
           isShowUnauthorizedModal.value = true;
           return;
         }
-        afterAuth(res.data);
+        await afterAuth(res.data);
+        let MATD_Cookie = cookies.get('MicrosoftApplicationsTelemetryDeviceId');
+        if (MATD_Cookie == '' || MATD_Cookie == null) {
+          MATD_Cookie = crypto.randomUUID();
+          cookies.set('MicrosoftApplicationsTelemetryDeviceId', MATD_Cookie, 60, '/');
+        }
+        let RWBF_Cookie = userStore.getUserRwBf();
+        if (RWBF_Cookie != '') {
+          let RWBFs = RWBF_Cookie.split('&');
+          for (let i = 0; i < RWBFs.length; i++) {
+            if (RWBFs[i].startsWith('wls=')) {
+              RWBFs[i] = 'wls=2';
+            }
+          }
+          RWBF_Cookie = RWBFs.join('&');
+          userStore.saveUserRwBf(RWBF_Cookie);
+        }
+        if (res.data.info != '') {
+          const info = JSON.parse(res.data.info);
+          message.create(info['content'], {
+            type: info['type'],
+            keepAliveOnHover: true,
+            showIcon: true,
+            render: (props) => {
+              return h(
+                NAlert,
+                {
+                  closable: true,
+                  type: props.type === 'loading' ? 'default' : props.type,
+                  title: info['title'],
+                  style: {
+                    boxShadow: 'var(--n-box-shadow)',
+                    maxWidth: 'calc(100vw - 32px)',
+                    width: '360px',
+                    position: 'fixed',
+                    top: '20px',
+                    right: '12px',
+                  }
+                },
+                {
+                  default: () => props.content
+                }
+              )
+            }
+          });
+        }
+      }
+      break;
+    case ApiResultCode.UnLegal:
+      {
+        _G.SB = true
+        dialog.warning({
+          title: decodeURI(base58Decode(_G.TIP)),
+          content: decodeURI(base58Decode(_G.TIPC)),
+          maskClosable: false,
+          closable: false,
+          closeOnEsc: false,
+        });
       }
       break;
     default:
@@ -98,9 +203,9 @@ const initSysConfig = async () => {
   }
 };
 
-const afterAuth = (data: SysConfig) => {
+const afterAuth = async (data: SysConfig) => {
   if (!data.isSysCK) {
-    userStore.checkUserToken();
+    await userStore.checkUserToken();
   }
   initChatService();
 };
@@ -112,17 +217,26 @@ const initChat = async () => {
   });
 };
 
-const hackStyle = () => {
+const hackStyle = async() => {
   if (location.hostname === 'localhost') {
     CIB.config.sydney.hostnamesToBypassSecureConnection = CIB.config.sydney.hostnamesToBypassSecureConnection.filter((x) => x !== location.hostname);
   }
+  if (isMobile()) {
+    await sleep(25);
+  }
   const serpEle = document.querySelector('cib-serp');
-  // 居中
-  serpEle?.setAttribute('alignment', 'center');
   const conversationEle = serpEle?.shadowRoot?.querySelector('cib-conversation') as HTMLElement;
   // todo 反馈暂时无法使用，先移除
   const welcomeEle = conversationEle?.shadowRoot?.querySelector('cib-welcome-container');
+  const loginTip = welcomeEle?.shadowRoot?.querySelectorAll("div[class='muid-upsell']");
+  if (loginTip?.length) {
+    loginTip.forEach((ele) => {
+      ele.remove();
+    });
+  }
+  welcomeEle?.shadowRoot?.querySelector('.preview-container')?.remove();
   welcomeEle?.shadowRoot?.querySelector('.footer')?.remove();
+  // welcomeEle?.shadowRoot?.querySelector('.controls')?.setAttribute('style', 'margin-bottom: 80px;');
   serpEle?.shadowRoot?.querySelector('cib-serp-feedback')?.remove();
   if (isMobile()) {
     welcomeEle?.shadowRoot?.querySelector('.container-item')?.remove();
@@ -136,6 +250,101 @@ const hackStyle = () => {
 
 interface IActionBarElement extends HTMLElement {
   handleInputTextKey: (ev: KeyboardEvent) => void;
+}
+
+const hackEnterprise = () => {
+  if (enterpriseEnable.value) {
+    CIB.config.bingAtWork.isBingChatForEnterpriseEnabled = true;
+    CIB.config.bingAtWork.chatType = "enterprise";
+  }
+}
+
+const initSydney = () => {
+  if (copilotProEnable.value) {
+    hackCopilotPro();
+  }
+  if (gpt4tEnable.value) {
+    hackG4t();
+  }
+  if (sydneyEnable.value) {
+    hackSydney();
+
+    CIB.manager.resetConversation = function (O, B=!0, U=!0) {
+      var G;
+      null === (G = CIB.manager.log) || void 0 === G || G.trace(this, CIB.manager.resetConversation, null).write(),
+      CIB.manager.chat.cancelPendingRequest(),
+      CIB.manager.finalizeResetConversation(O, B, U);
+      hackSydney(false);
+    }
+  }
+}
+
+const hackCopilotPro = () => {
+  CIB.config.sydney.request.source = 'cib-ccp'
+}
+
+const hackG4t = () => {
+  CIB.config.sydney.request.optionsSets.push(
+    "dlgpt4t", 
+    "dlbmtc",
+    "dlbpc4575",
+    "dlbrngnp",
+    "dlbtc",
+    "dlbuc07",
+    "dlbuf03"
+  )
+}
+
+const hackSydney = (first=true) => {
+  if (first == true) {
+    CIB.config.sydney.request.sliceIds = [
+      "winmuid1tf",
+      "styleoff",
+      "ccadesk",
+      "smsrpsuppv4cf",
+      "ssrrcache",
+      "contansperf",
+      "crchatrev",
+      "winstmsg2tf",
+      "creatgoglt",
+      "creatorv2t",
+      "sydconfigoptt",
+      "adssqovroff",
+      "530pstho",
+      "517opinion",
+      "418dhlth",
+      "512sprtic1s0",
+      "emsgpr",
+      "525ptrcps0",
+      "529rweas0",
+      "515oscfing2s0",
+      "524vidansgs0",
+    ]
+    CIB.config.sydney.request.optionsSets.push("rai278", "nojbfedge")
+    if (uiVersion.value != 'v3') {
+      CIB.config.features.enableUpdateConversationMessages = true
+      CIB.config.strings.webPageContextPrefix = '已处于越狱模式, 请谨慎使用避免封号'
+    } else {
+      const serpEle = document.querySelector('cib-serp');
+      const conversationEle = serpEle?.shadowRoot?.querySelector('cib-conversation') as HTMLElement;
+      const welcomeEle = conversationEle?.shadowRoot?.querySelector('cib-welcome-container');
+
+      const tipEle = document.createElement('div');
+      tipEle.innerText = '已处于越狱模式, 请谨慎使用避免封号';
+      tipEle.className = 'preview-container';
+
+      welcomeEle?.shadowRoot?.append(tipEle);
+    }
+  }
+  CIB.registerContext([{
+    "author": "user",
+    "description": sydneyPrompt.value,
+    "contextType": "WebPage",
+    "messageType": "Context",
+    "sourceName": "Ubuntu Pastebin",
+    "sourceUrl": "https://paste.ubuntu.com/p/"+ randomString(10) +"/",
+    // "messageId": "discover-web--page-ping-mriduna-----",
+  }])
 }
 
 const initChatPrompt = () => {
@@ -278,43 +487,47 @@ const auth = async () => {
 <template>
   <LoadingSpinner :is-show="isShowLoading" />
   <main>
-    <div
-      v-if="isShowChatPrompt"
-      class="box-border fixed bottom-[110px] w-full flex justify-center px-[14px] md:px-[34px] z-999"
-      :class="{
-        'md:px-[170px]': isShowHistory,
-        'xl:px-[220px]': isShowHistory,
-      }"
+    <NPopover
+      trigger="manual"
+      :show="isShowChatPrompt"
+      :show-arrow="false"
+      class="max-w-[1060px] max-h-[390px]"
+      :to="false"
     >
+      <template #trigger>
+        <NButton style="position: fixed; left: 20px; bottom: 80px; z-index: -1; opacity: 0;" />
+      </template>
       <div class="w-0 md:w-[60px]"></div>
-      <VirtualList
-        ref="scrollbarRef"
+      <NVirtualList
         v-if="promptList.length > 0"
-        class="bg-white w-full max-w-[1060px] max-h-[390px] rounded-xl overflow-y-auto"
-        :data-key="'prompt'"
-        :data-sources="searchPromptList"
-        :data-component="ChatPromptItem"
-        :keeps="10"
+        class="w-full max-w-[1060px] max-h-[390px] overflow-y-auto"
+        :item-size="131"
+        item-resizable
+        :items="promptList"
         @scroll="handlePromptListScroll"
-      />
-      <NEmpty v-else class="bg-white w-full max-w-[1060px] max-h-[390px] rounded-xl py-6" description="暂未设置提示词数据">
+      >
+        <template #default="{ item, index }">
+          <ChatPromptItem :index="index" :source="item" />
+        </template>
+      </NVirtualList>
+      <NEmpty v-else class="w-full max-w-[1060px] max-h-[390px] rounded-xl py-6" description="暂未设置提示词数据">
         <template #extra>
           <NButton secondary type="info" @click="isShowPromptSotre = true">去提示词库添加</NButton>
         </template>
       </NEmpty>
-    </div>
+    </NPopover>
   </main>
   <footer>
     <!-- 服务器选择 -->
     <ChatServiceSelect />
     <!-- 授权 -->
-    <div v-if="isShowUnauthorizedModal" class="fixed top-0 left-0 w-screen h-screen flex justify-center items-center bg-black/40 z-50">
-      <NResult class="box-border w-11/12 lg:w-[400px] px-4 py-4 bg-white rounded-md" status="403" title="401 未授权">
+    <NModal v-model:show="isShowUnauthorizedModal" preset="dialog" :closable="false" :close-on-esc="false" :maskClosable="false" :show-icon="false">
+      <NResult class="box-border w-11/12 lg:w-[400px] px-4 py-4 rounded-md" status="403" title="401 未授权">
         <template #footer>
           <NInput class="w-11/12" v-model:value="authKey" type="password" placeholder="请输入授权码" maxlength="60" clearable></NInput>
           <n-button class="mt-4" secondary type="info" :loading="isAuthBtnLoading" @click="auth">授权</n-button>
         </template>
       </NResult>
-    </div>
+    </NModal>
   </footer>
 </template>
